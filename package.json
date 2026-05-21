@@ -1,0 +1,13 @@
+{
+  "dependencies": {
+    "@actual-app/api": "^26.5.0",
+    "axios": "^1.16.0",
+    "dotenv": "^16.6.1",
+    "tesseract.js": "^5.1.1"
+  },
+  "scripts": {
+    "test:ai": "node test-ai-categorization.js",
+    "smoke-test": "node smoke-test.js",
+    "demo": "node smoke-test.js --demo"
+  }
+}

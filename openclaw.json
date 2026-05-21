@@ -1,0 +1,33 @@
+{
+  "agents": {
+    "list": [
+      {
+        "id": "budget-bot",
+        "name": "Budget Bot",
+        "workspace": "c:/Users/dhana/Desktop/telegram-openclaw/workspace",
+        "agentDir": "c:/Users/dhana/Desktop/telegram-openclaw/workspace"
+      }
+    ]
+  },
+  "bindings": [
+    {
+      "agentId": "budget-bot",
+      "match": {
+        "channel": "telegram",
+        "accountId": "budget-bot"
+      }
+    }
+  ],
+  "channels": {
+    "telegram": {
+      "accounts": {
+        "budget-bot": {
+          "dmPolicy": "pairing",
+          "botToken": "USE_TELEGRAM_BOT_TOKEN_ENV",
+          "groupPolicy": "open",
+          "streaming": "partial"
+        }
+      }
+    }
+  }
+}

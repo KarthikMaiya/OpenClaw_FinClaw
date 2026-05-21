@@ -1,0 +1,31 @@
+services:
+  actual-budget:
+    image: actualbudget/actual-server:latest
+    container_name: actual-budget
+    restart: unless-stopped
+    ports:
+      - "5006:5006"
+    volumes:
+      - ./data:/data
+    environment:
+      - ACTUAL_ALLOW_SHARED_ARRAY_BUFFER=true
+
+  # Optional: HTTPS reverse proxy for Safari/mobile access
+  # Uncomment if you need HTTPS (required for Safari's SharedArrayBuffer)
+  #
+  # caddy:
+  #   image: caddy:latest
+  #   container_name: actual-caddy
+  #   restart: unless-stopped
+  #   ports:
+  #     - "5007:5007"
+  #   volumes:
+  #     - ./Caddyfile:/etc/caddy/Caddyfile:ro
+  #     - caddy_data:/data
+  #     - caddy_config:/config
+  #   depends_on:
+  #     - actual-budget
+
+# volumes:
+#   caddy_data:
+#   caddy_config:

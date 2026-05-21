@@ -1,0 +1,10 @@
+- # USER.md
+- > Personal configuration template (fill with your details)
+-
+- **Name:** YOUR_NAME
+- **Timezone:** YOUR_TIMEZONE (e.g. Asia/Bangkok, America/New_York)
+- **Default account:** YOUR_DEFAULT_ACCOUNT (e.g. "Checking", "Main")
+- **Language:** Mirror what the user sends — match their language.
+- **Currency:** YOUR_CURRENCY (e.g. THB, USD $, EUR)
+- **Budget app:** Actual Budget at http://localhost:5006
+- **Accounts:** List your bank accounts here (e.g. Checking, Savings, Credit Card)
