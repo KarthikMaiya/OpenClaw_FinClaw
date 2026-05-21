@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # OpenClaw + Actual Budget Telegram Bot
 
 Personal finance assistant that logs transactions to Actual Budget and answers spending questions from Telegram.
@@ -256,3 +257,6 @@ If you are using OpenClaw channel routing:
 ## License and Ownership
 
 This is a personal maintained setup and customization on top of OpenClaw + Actual Budget components.
+=======
+# telegram-bot2
+>>>>>>> 49ffe02b1b1a533695fcda3f1a0259c5ae1a188f
