@@ -23,7 +23,7 @@ Copy the repo's `workspace/` folder into your OpenClaw workspace location.
 Example:
 
 ```powershell
-Copy-Item -Recurse "c:\Users\dhana\Desktop\telegram-openclaw\workspace" "$env:USERPROFILE\.openclaw\workspace-budget-bot"
+Copy-Item -Recurse "c:\Users\Karthik Maiya\Desktop\telegram-bott\workspace" "$env:USERPROFILE\.openclaw\workspace-budget-bot"
 ```
 
 ## 3. Add the OpenClaw config

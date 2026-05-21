@@ -30,6 +30,59 @@ const WORKSPACE_DIR = path.join(
   ".openclaw",
   "workspace-budget-bot"
 );
+const BOT_LOCK_FILE = path.join(os.tmpdir(), "telegram-budget-bot.lock");
+
+function isPidRunning(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function acquireBotLock() {
+  try {
+    fs.writeFileSync(BOT_LOCK_FILE, String(process.pid), { flag: "wx" });
+    return;
+  } catch (error) {
+    if (error.code !== "EEXIST") {
+      throw error;
+    }
+  }
+
+  const existingPid = Number(String(fs.readFileSync(BOT_LOCK_FILE, "utf8") || "").trim());
+  if (existingPid && isPidRunning(existingPid)) {
+    console.error(`Another local telegram-bot.js process is running (PID ${existingPid}). Stop it and run only one instance.`);
+    process.exit(1);
+  }
+
+  // Stale lock; take ownership.
+  fs.writeFileSync(BOT_LOCK_FILE, String(process.pid), "utf8");
+}
+
+function releaseBotLock() {
+  try {
+    if (fs.existsSync(BOT_LOCK_FILE)) {
+      const ownerPid = Number(String(fs.readFileSync(BOT_LOCK_FILE, "utf8") || "").trim());
+      if (!ownerPid || ownerPid === process.pid) {
+        fs.unlinkSync(BOT_LOCK_FILE);
+      }
+    }
+  } catch {
+    // Ignore lock cleanup errors during shutdown.
+  }
+}
+
+process.on("exit", releaseBotLock);
+process.on("SIGINT", () => {
+  releaseBotLock();
+  process.exit(0);
+});
+process.on("SIGTERM", () => {
+  releaseBotLock();
+  process.exit(0);
+});
 
 let runtimeConfig;
 try {
@@ -46,6 +99,8 @@ try {
 if (runtimeConfig.configDebug) {
   printDebugSummary("telegram-bot");
 }
+
+acquireBotLock();
 
 // Load workspace metadata (optional for logging/context)
 let AGENTS = "";
@@ -82,6 +137,24 @@ async function throttleApiCall() {
     await new Promise((resolve) => setTimeout(resolve, waitTime));
   }
   lastApiCall = Date.now();
+}
+
+function getActualErrorResponse(error, fallbackMessage) {
+  const message = String(error?.message || error || "").toLowerCase();
+
+  if (message.includes("invalid-password")) {
+    return "❌ Actual Budget authentication failed. Update `ACTUAL_PASSWORD` in your `.env` to match the password you use at http://localhost:5006, then restart the bot.";
+  }
+
+  if (message.includes("too-many-requests")) {
+    return "⏱️ Actual Budget is rate-limiting requests. Wait a few seconds and try again.";
+  }
+
+  if (message.includes("could not find actual budget named") || message.includes("missing budget selection")) {
+    return "❌ Budget not found. Check `ACTUAL_BUDGET_NAME` or `ACTUAL_BUDGET_ID` in `.env` and restart the bot.";
+  }
+
+  return fallbackMessage;
 }
 
 /**
@@ -211,12 +284,12 @@ function parseDateFromText(text) {
 function detectAccountFromText(text) {
   const lower = text.toLowerCase();
   if (/visa|mastercard|amex|discover|credit card|card ending|pos|tap to pay/.test(lower)) {
-    return "Credit Card";
+    return "Karthik Maiya";
   }
   if (/savings|deposit|interest/.test(lower)) {
-    return "Savings";
+    return "Karthik Maiya";
   }
-  return "Checking";
+  return "Karthik Maiya";
 }
 
 function extractAmountFromText(text) {
@@ -443,13 +516,13 @@ I'll scan and log them automatically!`,
         const balances = result.balances;
         let message = "💰 **Your Balance**\n\n";
         Object.entries(balances).forEach(([account, balance]) => {
-          message += `${account}: $${balance.toFixed(2)}\n`;
+          message += `${account}: ₹${balance.toFixed(2)}\n`;
         });
         return { response: message };
       } catch (error) {
         console.error("Balance error:", error);
         return {
-          response: "❌ Error fetching balance. Please try again.",
+          response: getActualErrorResponse(error, "❌ Error fetching balance. Please try again."),
         };
       }
 
@@ -467,13 +540,13 @@ I'll scan and log them automatically!`,
         let message = "📊 **Recent Transactions**\n\n";
         transactions.forEach((t) => {
           const sign = t.amount < 0 ? "-" : "+";
-          message += `${t.date} | ${sign}$${Math.abs(t.amount).toFixed(2)} | ${t.payee}\n`;
+          message += `${t.date} | ${sign}₹${Math.abs(t.amount).toFixed(2)} | ${t.payee}\n`;
         });
         return { response: message };
       } catch (error) {
         console.error("Recent transactions error:", error);
         return {
-          response: "❌ Error fetching transactions.",
+          response: getActualErrorResponse(error, "❌ Error fetching transactions."),
         };
       }
 
@@ -491,7 +564,7 @@ I'll scan and log them automatically!`,
         console.error("Natural language query error:", error.message);
         console.error("Natural language query stack:", error.stack);
         return {
-          response: "❌ Error handling that question. Please try again.",
+          response: getActualErrorResponse(error, "❌ Error handling that question. Please try again."),
         };
       }
 
@@ -510,13 +583,13 @@ I'll scan and log them automatically!`,
 
         let message = `📈 **Spending Insights**\n\n${monthLabel}\n\n`;
         if (typeof result.totalExpense === "number") {
-          message += `Spent: $${Math.abs(result.totalExpense).toFixed(2)}\n`;
+          message += `Spent: ₹${Math.abs(result.totalExpense).toFixed(2)}\n`;
         }
         if (typeof result.totalIncome === "number") {
-          message += `Income: $${result.totalIncome.toFixed(2)}\n`;
+          message += `Income: ₹${result.totalIncome.toFixed(2)}\n`;
         }
         if (typeof result.net === "number") {
-          message += `Net: $${result.net.toFixed(2)}\n`;
+          message += `Net: ₹${result.net.toFixed(2)}\n`;
         }
 
         message += `\n`;
@@ -528,7 +601,7 @@ I'll scan and log them automatically!`,
       } catch (error) {
         console.error("Insights error:", error);
         return {
-          response: "❌ Error fetching spending insights. Please try again.",
+          response: getActualErrorResponse(error, "❌ Error fetching spending insights. Please try again."),
         };
       }
 
@@ -555,7 +628,7 @@ I'll scan and log them automatically!`,
         const result = await addTransaction({
           amount: parsed.amount,
           payee: parsed.payee,
-          account: "Checking",
+          account: "Karthik Maiya",
           category: parsed.category,
         });
 
@@ -569,19 +642,8 @@ I'll scan and log them automatically!`,
         };
       } catch (error) {
         console.error("Add transaction error:", error);
-        const errorMsg = error.message || error.toString();
-        
-        // Check if it's a rate limiting error
-        if (errorMsg.includes('too-many-requests')) {
-          return {
-            response:
-              "⏱️ Server is busy. Please wait a moment and try again.",
-          };
-        }
-        
         return {
-          response:
-            "❌ Couldn't save transaction. Try again in a moment.",
+          response: getActualErrorResponse(error, "❌ Couldn't save transaction. Try again in a moment."),
         };
       }
 
@@ -636,7 +698,7 @@ async function handleUpdate(update) {
 
       await sendTelegramMessage(
         chatId,
-        `✅ **Receipt scanned**\n\n${result.payee} | ${result.amount < 0 ? "-" : "+"}$${Math.abs(result.amount).toFixed(2)}\n${result.date}${result.category ? `\n🏷️ ${result.category}` : ""}${result.notes ? `\n📝 ${result.notes}` : ""}`
+        `✅ **Receipt scanned**\n\n${result.payee} | ${result.amount < 0 ? "-" : "+"}₹${Math.abs(result.amount).toFixed(2)}\n${result.date}${result.category ? `\n🏷️ ${result.category}` : ""}${result.notes ? `\n📝 ${result.notes}` : ""}`
       );
       return;
     }
@@ -709,6 +771,40 @@ async function startPolling() {
         console.log(`[Poll #${pollAttempts}] Still listening (no new messages)...`);
       }
     } catch (error) {
+      const statusCode = error.response?.status;
+      const description = String(error.response?.data?.description || "");
+
+      if (statusCode === 409) {
+        console.error("Polling conflict (409):", description || error.message);
+
+        if (/webhook/i.test(description)) {
+          try {
+            await axios.post(`${TELEGRAM_API}/deleteWebhook`, {
+              drop_pending_updates: false,
+            });
+            console.log("🔧 Re-cleared Telegram webhook after 409 conflict");
+          } catch (webhookError) {
+            console.error(
+              "Failed to clear webhook after 409:",
+              webhookError.response?.data?.description || webhookError.message
+            );
+          }
+          await new Promise((resolve) => setTimeout(resolve, 3000));
+          continue;
+        }
+
+        if (/terminated by other getupdates request/i.test(description)) {
+          console.error(
+            "Another bot process is already polling this token. Stop duplicate telegram-bot.js instances and run only one."
+          );
+          await new Promise((resolve) => setTimeout(resolve, 7000));
+          continue;
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, 5000));
+        continue;
+      }
+
       if (error.code !== "ECONNABORTED") {
         console.error("Polling error:", error.message);
       }

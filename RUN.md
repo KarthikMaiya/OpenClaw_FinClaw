@@ -6,7 +6,7 @@
 
 ### Step 1: Start Docker (Actual Budget Server)
 ```powershell
-cd c:\Users\dhana\Desktop\telegram-openclaw\setup
+cd c:\Users\Karthik Maiya\Desktop\telegram-bott\setup
 docker compose up -d
 ```
 
@@ -20,7 +20,7 @@ You should see: `actual-budget` container running on port 5006
 ### Step 2: Start the Telegram Bot
 Open a new PowerShell window and run:
 ```powershell
-cd c:\Users\dhana\Desktop\telegram-openclaw
+cd c:\Users\Karthik Maiya\Desktop\telegram-bott
 node telegram-bot.js
 ```
 
@@ -28,7 +28,7 @@ Expected output:
 ```
 🤖 Budget Bot started! Listening for Telegram messages...
 Bot Token: configured via .env
-Workspace: C:\Users\dhana\.openclaw\workspace-budget-bot
+Workspace: C:\Users\Karthik Maiya\.openclaw\workspace-budget-bot
 ```
 
 **The terminal will stay open and log all messages.** ✅ Bot is now live!
@@ -47,7 +47,7 @@ Response: `✅ Account Linked!`
 ```
 /balance
 ```
-Response: `💰 Your Balance - Checking: $1,234.56`
+Response: `💰 Your Balance - Karthik Maiya: ₹1,234.56`
 
 **View recent transactions:**
 ```
@@ -59,7 +59,7 @@ Response: Shows your last 5 transactions
 ```
 50 groceries
 ```
-Response: `✅ Logged! groceries | -$50.00`
+Response: `✅ Logged! groceries | -₹50.00`
 
 ---
 
@@ -74,14 +74,14 @@ Response: `✅ Logged! groceries | -$50.00`
 
 #### 1. Verify Docker Setup
 ```powershell
-cd c:\Users\dhana\Desktop\telegram-openclaw\setup
+cd c:\Users\Karthik Maiya\Desktop\telegram-bott\setup
 docker compose up -d
 docker ps  # Should see actual-budget container
 ```
 
 #### 2. Install Dependencies
 ```powershell
-cd c:\Users\dhana\Desktop\telegram-openclaw
+cd c:\Users\Karthik Maiya\Desktop\telegram-bott
 npm install
 ```
 
@@ -97,15 +97,15 @@ If you want to override the tracked budget metadata, set `ACTUAL_BUDGET_ID` in `
 #### 4. Deploy OpenClaw Workspace
 ```powershell
 # This copies workspace files to ~/.openclaw/
-Copy-Item -Recurse "c:\Users\dhana\Desktop\telegram-openclaw\workspace" "$env:USERPROFILE\.openclaw\workspace-budget-bot" -Force
+Copy-Item -Recurse "c:\Users\Karthik Maiya\Desktop\telegram-bott\workspace" "$env:USERPROFILE\.openclaw\workspace-budget-bot" -Force
 
 # Copy the bot configuration
-Copy-Item "c:\Users\dhana\Desktop\telegram-openclaw\openclaw.json" "$env:USERPROFILE\.openclaw\openclaw.json" -Force
+Copy-Item "c:\Users\Karthik Maiya\Desktop\telegram-bott\openclaw.json" "$env:USERPROFILE\.openclaw\openclaw.json" -Force
 ```
 
 #### 5. Start the Bot
 ```powershell
-cd c:\Users\dhana\Desktop\telegram-openclaw
+cd c:\Users\Karthik Maiya\Desktop\telegram-bott
 node telegram-bot.js
 ```
 
@@ -125,14 +125,14 @@ Bot: ✅ Account Linked!
 ```
 User: /balance
 Bot: 💰 Your Balance
-     Checking: $1,234.56
+     Karthik Maiya: ₹1,234.56
 ```
 
 **Step 3: Log an expense**
 ```
 User: 45.50 coffee
 Bot: ✅ Logged!
-     coffee | -$45.50
+     coffee | -₹45.50
      2026-05-07
 ```
 
@@ -140,9 +140,9 @@ Bot: ✅ Logged!
 ```
 User: /recent
 Bot: 📊 Recent Transactions
-     2026-05-07 | -$45.50 | coffee
-     2026-05-06 | -$25.00 | lunch
-     2026-05-05 | -$100.00 | gas
+     2026-05-07 | -₹45.50 | coffee
+     2026-05-06 | -₹25.00 | lunch
+     2026-05-05 | -₹100.00 | gas
 ```
 
 ---
@@ -169,8 +169,27 @@ cat $env:USERPROFILE\.openclaw\openclaw.json | findstr botToken
 
 Make sure dependencies are installed:
 ```powershell
-cd c:\Users\dhana\Desktop\telegram-openclaw
+cd c:\Users\Karthik Maiya\Desktop\telegram-bott
 npm install axios
+```
+
+### "Authentication failed: invalid-password"
+
+This means your `.env` password does not match your Actual server password.
+
+1. Open `http://localhost:5006` and confirm the password you can log in with.
+2. Update `ACTUAL_PASSWORD` in `.env` with exactly that same value.
+3. Validate with:
+
+```powershell
+cd c:\Users\Karthik Maiya\Desktop\telegram-bott
+node setup/discover-accounts.js
+```
+
+4. Restart the bot after fixing auth:
+
+```powershell
+node telegram-bot.js
 ```
 
 ### Transactions not logging
@@ -190,7 +209,7 @@ docker compose -f setup/docker-compose.yml restart
 ## Running Checks Before Demo
 
 ```powershell
-cd c:\Users\dhana\Desktop\telegram-openclaw
+cd c:\Users\Karthik Maiya\Desktop\telegram-bott
 node health-check.js
 ```
 

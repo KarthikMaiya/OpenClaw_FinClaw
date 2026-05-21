@@ -10,7 +10,7 @@ Adds a single transaction to Actual Budget.
 
 ```bash
 # Local Windows path for this workspace
-node c:/Users/dhana/Desktop/telegram-openclaw/integrations/add-transaction.js '<JSON>'
+node c:/Users/Karthik Maiya/Desktop/telegram-bott/integrations/add-transaction.js '<JSON>'
 ```
 
 | Parameter | Type | Required | Description |
@@ -23,7 +23,7 @@ node c:/Users/dhana/Desktop/telegram-openclaw/integrations/add-transaction.js '<
 
 **Example:**
 ```bash
-node c:/Users/dhana/Desktop/telegram-openclaw/integrations/add-transaction.js \
+node c:/Users/Karthik Maiya/Desktop/telegram-bott/integrations/add-transaction.js \
   '{"amount":-45,"payee":"Grocery Store","notes":"Weekly groceries","date":"2026-03-01","account":"Checking"}'
 ```
 
@@ -42,7 +42,7 @@ Query your budget data from Actual Budget.
 
 ```bash
 # Local Windows path for this workspace
-node c:/Users/dhana/Desktop/telegram-openclaw/workspace/skills/budget/query-budget.js '<JSON>'
+node c:/Users/Karthik Maiya/Desktop/telegram-bott/workspace/skills/budget/query-budget.js '<JSON>'
 ```
 
 #### Commands
@@ -67,26 +67,26 @@ node c:/Users/dhana/Desktop/telegram-openclaw/workspace/skills/budget/query-budg
 **Examples:**
 ```bash
 # Last 5 transactions
-node c:/Users/dhana/Desktop/telegram-openclaw/workspace/skills/budget/query-budget.js '{"command":"recent","limit":5}'
+node c:/Users/Karthik Maiya/Desktop/telegram-bott/workspace/skills/budget/query-budget.js '{"command":"recent","limit":5}'
 
 # Spending by category this month
-node c:/Users/dhana/Desktop/telegram-openclaw/workspace/skills/budget/query-budget.js \
+node c:/Users/Karthik Maiya/Desktop/telegram-bott/workspace/skills/budget/query-budget.js \
   '{"command":"category","startDate":"2026-03-01","endDate":"2026-03-31"}'
 
 # Total spending this month
-node c:/Users/dhana/Desktop/telegram-openclaw/workspace/skills/budget/query-budget.js \
+node c:/Users/Karthik Maiya/Desktop/telegram-bott/workspace/skills/budget/query-budget.js \
   '{"command":"total","startDate":"2026-03-01","endDate":"2026-03-31"}'
 
 # AI expense analyst for the current month
-node c:/Users/dhana/Desktop/telegram-openclaw/workspace/skills/budget/query-budget.js \
+node c:/Users/Karthik Maiya/Desktop/telegram-bott/workspace/skills/budget/query-budget.js \
   '{"command":"analyze","month":"2026-03"}'
 
 # Natural language query
-node c:/Users/dhana/Desktop/telegram-openclaw/workspace/skills/budget/query-budget.js \
+node c:/Users/Karthik Maiya/Desktop/telegram-bott/workspace/skills/budget/query-budget.js \
   '{"command":"query","question":"How much did I spend on food last month?"}'
 
 # Search for a payee
-node c:/Users/dhana/Desktop/telegram-openclaw/workspace/skills/budget/query-budget.js '{"command":"search","payee":"Coffee"}'
+node c:/Users/Karthik Maiya/Desktop/telegram-bott/workspace/skills/budget/query-budget.js '{"command":"search","payee":"Coffee"}'
 ```
 
 ## Account Codes
@@ -107,7 +107,7 @@ Update this table with your Actual Budget account names and UUIDs. Run `node set
 | Server URL | `http://localhost:5006` (update in `config.json`) |
 | Password | Stored in `config.json` (never commit this file) |
 | Budget ID | Your budget's group ID (find via `discover-accounts.js`) |
-| Config file | `c:/Users/dhana/Desktop/telegram-openclaw/integrations/config.json` |
+| Config file | `c:/Users/Karthik Maiya/Desktop/telegram-bott/integrations/config.json` |
 
 ## Notes
 

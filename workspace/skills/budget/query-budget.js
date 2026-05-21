@@ -31,7 +31,7 @@ const { fetchBudgetMonth, attachBudgetContextToQuery, getMonthKey } = require('.
 
 // -----------------------------------------------------------------------
 // UPDATE THIS PATH to point to your integrations/config.json
-// Example: 'c:/Users/dhana/Desktop/telegram-openclaw/integrations/config.json'
+// Example: 'c:/Users/Karthik Maiya/Desktop/telegram-bott/integrations/config.json'
 // -----------------------------------------------------------------------
 const config = require(path.resolve(__dirname, '../../../integrations/config.json'));
 

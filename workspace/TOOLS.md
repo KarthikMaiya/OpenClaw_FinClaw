@@ -5,21 +5,21 @@
 ## Actual Budget
 
 - **Server:** `http://localhost:5006`
-- **Budget:** "Finclaw"
-- **Config:** `c:/Users/dhana/Desktop/telegram-openclaw/integrations/config.json`
+- **Budget:** "FinanceClaw"
+- **Config:** `c:/Users/Karthik Maiya/Desktop/telegram-bott/integrations/config.json`
 - **API Package:** `@actual-app/api` (Node.js)
 
 ### Transaction Tool
 ```bash
 # Local Windows path for this workspace
-node c:/Users/dhana/Desktop/telegram-openclaw/integrations/add-transaction.js \
+node c:/Users/Karthik Maiya/Desktop/telegram-bott/integrations/add-transaction.js \
   '{"amount":-90,"payee":"Restaurant","notes":"context","date":"2026-01-15","account":"Checking"}'
 ```
 
 ### Query Tool
 ```bash
 # Local Windows path for this workspace
-node c:/Users/dhana/Desktop/telegram-openclaw/workspace/skills/budget/query-budget.js \
+node c:/Users/Karthik Maiya/Desktop/telegram-bott/workspace/skills/budget/query-budget.js \
   '{"command":"recent","limit":10}'
 ```
 

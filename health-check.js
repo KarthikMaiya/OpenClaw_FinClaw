@@ -89,21 +89,11 @@ async function runChecks() {
 
   // 2. Configuration Check
   header("2️⃣  Configuration Files");
-  const configCheck = check("integrations/config.json");
-  const configPath = path.join(__dirname, "integrations", "config.json");
-  if (fs.existsSync(configPath)) {
-    try {
-      const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
-      if (config.budgetId) {
-        configCheck.pass(`Configured: ${config.budgetName || "Budget"}`);
-      } else {
-        configCheck.fail("Missing budgetId");
-      }
-    } catch (e) {
-      configCheck.fail("Invalid JSON");
-    }
+  const budgetSelectionCheck = check("Actual budget selection");
+  if (runtimeConfig.actualBudgetId || runtimeConfig.actualBudgetName) {
+    budgetSelectionCheck.pass(`Configured: ${runtimeConfig.actualBudgetName || runtimeConfig.actualBudgetId}`);
   } else {
-    configCheck.fail("File not found");
+    budgetSelectionCheck.fail("Missing ACTUAL_BUDGET_ID or ACTUAL_BUDGET_NAME");
   }
 
   const envCheck = check("Environment configuration");

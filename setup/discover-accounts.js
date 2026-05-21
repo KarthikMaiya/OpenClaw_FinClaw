@@ -97,6 +97,17 @@ async function discover() {
 }
 
 discover().catch(e => {
-  console.error('Error:', e.message);
+  const message = String(e?.message || e || 'Unknown error');
+  console.error('Error:', message);
+
+  if (message.includes('invalid-password')) {
+    console.error('Hint: ACTUAL_PASSWORD in .env does not match your Actual server password.');
+    console.error('      Sign in at http://localhost:5006, confirm your password, update .env, then run this again.');
+  } else if (message.includes('too-many-requests')) {
+    console.error('Hint: Actual server is temporarily rate-limiting auth attempts. Wait 10-30 seconds and retry.');
+  } else if (message.includes('network-failure')) {
+    console.error('Hint: Server may still be starting. Verify Docker container status and retry in a few seconds.');
+  }
+
   process.exit(1);
 });

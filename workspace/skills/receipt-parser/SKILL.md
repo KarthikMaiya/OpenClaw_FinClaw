@@ -114,7 +114,7 @@ Once all fields are extracted, add the transaction to Actual Budget:
 
 ```bash
 # Local Windows path for this workspace
-node c:/Users/dhana/Desktop/telegram-openclaw/integrations/add-transaction.js \
+node c:/Users/Karthik Maiya/Desktop/telegram-bott/integrations/add-transaction.js \
   '{"amount":-350,"payee":"Coffee Shop","notes":"Ref: ABC123","date":"2026-03-01","account":"Checking"}'
 ```
 

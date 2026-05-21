@@ -5,14 +5,14 @@
  * Adds a single transaction to your Actual Budget instance via the API.
  *
  * Usage:
- *   node add-transaction.js '{"amount":-90,"payee":"Restaurant","notes":"lunch","date":"2026-03-01","account":"Checking"}'
+ *   node add-transaction.js '{"amount":-90,"payee":"Restaurant","notes":"lunch","date":"2026-03-01","account":"Karthik Maiya"}'
  *
  * Parameters (JSON):
  *   amount  - Transaction amount (negative = expense, positive = income)
  *   payee   - Payee / merchant name
  *   notes   - Optional description
  *   date    - YYYY-MM-DD format (defaults to today)
- *   account - Account nickname from ACCOUNTS map (defaults to 'Checking')
+ *   account - Account nickname from ACCOUNTS map (defaults to 'Karthik Maiya')
  *
  * Setup:
  *   1. Copy config.example.json to config.json and fill in your credentials
@@ -45,9 +45,7 @@ const SHOULD_SHUTDOWN = require.main === module;
 // The keys are friendly nicknames you'll use in the CLI command.
 // -----------------------------------------------------------------------
 const ACCOUNTS = {
-  'Checking':    '312ce00d-f7be-4c00-97be-131cc0b4cc4f',
-  'Savings':     'YOUR_SAVINGS_ACCOUNT_UUID',
-  'Credit Card': 'YOUR_CREDIT_CARD_ACCOUNT_UUID',
+  'Karthik Maiya': 'ade5ff91-e560-4988-be90-b56344158a29',
 };
 
 // Local cache file for merchant->category mappings to avoid repeated AI calls.
@@ -270,7 +268,7 @@ async function resolveCategoryId(categoryName) {
   return newCategoryId;
 }
 
-async function addTransaction({ amount, payee, notes, date, account = 'Checking', category: categoryName }) {
+async function addTransaction({ amount, payee, notes, date, account = 'Karthik Maiya', category: categoryName }) {
   const runtimeConfig = validateRequiredConfig({ requireActual: true, requireBudgetId: true });
   const actualConfig = getActualBudgetConfig();
   if (runtimeConfig.configDebug) {
@@ -297,7 +295,7 @@ async function addTransaction({ amount, payee, notes, date, account = 'Checking'
   const inferredCategoryName = categoryName || await inferCategoryName({ payee, notes, amount: parseFloat(amount) });
   const categoryId = await resolveCategoryId(inferredCategoryName);
 
-  const accountId = ACCOUNTS[account] || ACCOUNTS['Checking'];
+  const accountId = ACCOUNTS[account] || ACCOUNTS['Karthik Maiya'];
   const amountCents = Math.round(parseFloat(amount) * 100);
   const txDate = date || new Date().toISOString().split('T')[0];
 

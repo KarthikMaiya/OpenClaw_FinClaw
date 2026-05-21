@@ -4,8 +4,8 @@
       {
         "id": "budget-bot",
         "name": "Budget Bot",
-        "workspace": "c:/Users/dhana/Desktop/telegram-openclaw/workspace",
-        "agentDir": "c:/Users/dhana/Desktop/telegram-openclaw/workspace"
+        "workspace": "c:/Users/Karthik Maiya/Desktop/telegram-bott/workspace",
+        "agentDir": "c:/Users/Karthik Maiya/Desktop/telegram-bott/workspace"
       }
     ]
   },
@@ -14,14 +14,14 @@
       "agentId": "budget-bot",
       "match": {
         "channel": "telegram",
-        "accountId": "budget-bot"
+        "accountId": "Karthik Maiya"
       }
     }
   ],
   "channels": {
     "telegram": {
       "accounts": {
-        "budget-bot": {
+        "Karthik Maiya": {
           "dmPolicy": "pairing",
           "botToken": "USE_TELEGRAM_BOT_TOKEN_ENV",
           "groupPolicy": "open",

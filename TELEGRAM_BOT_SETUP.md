@@ -26,7 +26,7 @@ Should show the `actual-budget` container running.
 From the project root:
 
 ```powershell
-cd c:\Users\dhana\Desktop\telegram-openclaw
+cd c:\Users\Karthik Maiya\Desktop\telegram-bott
 node telegram-bot.js
 ```
 
@@ -34,7 +34,7 @@ You should see:
 ```
 🤖 Budget Bot started! Listening for Telegram messages...
 Bot Token: configured via .env
-Workspace: C:\Users\dhana\.openclaw\workspace-budget-bot
+Workspace: C:\Users\Karthik Maiya\.openclaw\workspace-budget-bot
 ```
 
 ### 3. Link Your Telegram Account
@@ -67,7 +67,7 @@ Your Telegram account is now paired with your budget.
 50 groceries
 ```
 
-This should log a $50 expense to "groceries".
+This should log a ₹50 expense to "groceries".
 
 ## How It Works
 
@@ -126,7 +126,7 @@ $taskXml = @"
     <Exec>
       <Command>node</Command>
       <Arguments>telegram-bot.js</Arguments>
-      <WorkingDirectory>c:\Users\dhana\Desktop\telegram-openclaw</WorkingDirectory>
+      <WorkingDirectory>c:\Users\Karthik Maiya\Desktop\telegram-bott</WorkingDirectory>
     </Exec>
   </Actions>
 </Task>
@@ -138,7 +138,7 @@ $taskXml = @"
 
 The bot reads configuration from:
 - `~/.openclaw/openclaw.json` - Bot token and workspace path
-- `integrations/config.json` - Actual Budget credentials
+- `.env` - Actual Budget and Telegram credentials
 - `workspace/AGENTS.md` - Agent personality and accounts
 
 To customize the bot's responses, edit `workspace/SOUL.md` and `workspace/AGENTS.md`.

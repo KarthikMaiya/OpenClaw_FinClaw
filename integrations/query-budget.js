@@ -26,7 +26,7 @@ const SHOULD_SHUTDOWN = require.main === module;
 
 // Only configured account for this workspace.
 const ACCOUNTS = {
-  Checking: '312ce00d-f7be-4c00-97be-131cc0b4cc4f',
+  'Karthik Maiya': 'ade5ff91-e560-4988-be90-b56344158a29',
 };
 
 const ACCOUNT_NAMES = Object.fromEntries(
@@ -39,7 +39,7 @@ let lastInitAttempt = 0;
 let initFailureCount = 0;
 
 function formatMoney(amount) {
-  return `$${amount.toFixed(2)}`;
+  return `₹${amount.toFixed(2)}`;
 }
 
 function parseTransactionDate(value) {
