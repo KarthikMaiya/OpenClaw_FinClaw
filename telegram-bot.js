@@ -6,6 +6,7 @@
  */
 
 const axios = require("axios");
+const http = require("http");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
@@ -31,6 +32,14 @@ const WORKSPACE_DIR = path.join(
   "workspace-budget-bot"
 );
 const BOT_LOCK_FILE = path.join(os.tmpdir(), "telegram-budget-bot.lock");
+const FINCLAW_DUPLICATE_WINDOW_MS = 10 * 60 * 1000;
+const finClawEventCache = new Map();
+const FINCLAW_ACTUAL_ACCOUNT_ID = "ade5ff91-e560-4988-be90-b56344158a29";
+const FINCLAW_ACTUAL_ACCOUNT_NAME = "Karthik Maiya";
+const FINCLAW_WEBHOOK_PORT = Number(process.env.FINCLAW_WEBHOOK_PORT || 8787);
+const FINCLAW_WEBHOOK_PATH = String(process.env.FINCLAW_WEBHOOK_PATH || "/finclaw");
+const FINCLAW_WEBHOOK_TOKEN = String(process.env.FINCLAW_WEBHOOK_TOKEN || "");
+let finClawWebhookServer = null;
 
 function isPidRunning(pid) {
   try {
@@ -71,6 +80,15 @@ function releaseBotLock() {
     }
   } catch {
     // Ignore lock cleanup errors during shutdown.
+  }
+
+  if (finClawWebhookServer) {
+    try {
+      finClawWebhookServer.close();
+    } catch {
+      // Ignore server shutdown errors during process exit.
+    }
+    finClawWebhookServer = null;
   }
 }
 
@@ -400,6 +418,338 @@ function parseReceiptText(text, fallbackCaption = "") {
   };
 }
 
+function cleanupFinClawEventCache(now = Date.now()) {
+  for (const [key, entry] of finClawEventCache.entries()) {
+    if (!entry || now - entry.seenAt > FINCLAW_DUPLICATE_WINDOW_MS) {
+      finClawEventCache.delete(key);
+    }
+  }
+}
+
+function buildFinClawDuplicateKey(transaction) {
+  const amount = Number(transaction?.amount || 0);
+  const merchant = String(transaction?.merchant || transaction?.payee || "").trim().toLowerCase();
+  const date = String(transaction?.date || "").trim();
+  const timestamp = String(transaction?.timestamp || "").trim();
+  return [amount, merchant, date, timestamp].join("|");
+}
+
+function isLikelyDuplicateFinClawTransaction(transaction) {
+  const now = Date.now();
+  cleanupFinClawEventCache(now);
+  const key = buildFinClawDuplicateKey(transaction);
+  if (finClawEventCache.has(key)) {
+    return true;
+  }
+  finClawEventCache.set(key, { seenAt: now });
+  return false;
+}
+
+function normalizeFinClawTransaction(event) {
+  const transaction = event?.transaction || {};
+  const amount = Number(transaction.amount);
+  const merchant = String(transaction.merchant || transaction.payee || "").trim();
+  const payee = String(transaction.payee || transaction.merchant || merchant).trim();
+  const date = String(transaction.date || "").trim() || new Date().toISOString().slice(0, 10);
+  const timestamp = String(event.timestamp || transaction.timestamp || "").trim();
+  const categoryHint = String(transaction.categoryHint || "").trim();
+  const riskLevel = String(transaction.riskLevel || "").trim();
+  const source = String(event.source || "android_sms").trim() || "android_sms";
+  const notes = String(transaction.notes || "").trim();
+
+  return {
+    eventType: String(event.eventType || "").trim(),
+    source,
+    timestamp,
+    transaction: {
+      amount,
+      merchant,
+      payee,
+      categoryHint,
+      riskLevel,
+      notes,
+      date,
+    },
+  };
+}
+
+function buildFinClawIngestionNotes(transaction, event) {
+  const parts = [
+    transaction.notes ? `Notes: ${transaction.notes}` : null,
+    `Source: ${event?.source || "android_sms"}`,
+    event?.timestamp ? `Timestamp: ${event.timestamp}` : null,
+    transaction.riskLevel ? `Risk: ${transaction.riskLevel}` : null,
+    transaction.categoryHint ? `Category Hint: ${transaction.categoryHint}` : null,
+  ].filter(Boolean);
+
+  return parts.join(" | ");
+}
+
+function extractTelegramMessageText(message) {
+  const rawText = String(message?.text || message?.caption || "");
+  return rawText
+    .replace(/^\uFEFF/, "")
+    .replace(/^[\u200B-\u200D\u2060]+/, "")
+    .trimStart();
+}
+
+function normalizeWebhookBody(body) {
+  if (body && typeof body === "object") {
+    if (body.rawText && typeof body.rawText === "string") {
+      return body.rawText;
+    }
+
+    if (body.eventType && body.transaction) {
+      return `FINCLAW_EVENT:${JSON.stringify(body)}`;
+    }
+
+    if (body.event && body.event.eventType && body.event.transaction) {
+      return `FINCLAW_EVENT:${JSON.stringify(body.event)}`;
+    }
+  }
+
+  if (typeof body === "string") {
+    const trimmed = body.trim();
+    if (/^FINCLAW_EVENT:/i.test(trimmed)) {
+      return trimmed;
+    }
+  }
+
+  return null;
+}
+
+function readRequestBody(req, maxBytes = 1024 * 1024) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    let bytesRead = 0;
+
+    req.on("data", (chunk) => {
+      bytesRead += chunk.length;
+      if (bytesRead > maxBytes) {
+        reject(new Error("Request body too large"));
+        req.destroy();
+        return;
+      }
+      chunks.push(chunk);
+    });
+
+    req.on("end", () => {
+      resolve(Buffer.concat(chunks).toString("utf8"));
+    });
+
+    req.on("error", reject);
+  });
+}
+
+function startFinClawWebhookServer() {
+  if (finClawWebhookServer) {
+    return finClawWebhookServer;
+  }
+
+  finClawWebhookServer = http.createServer(async (req, res) => {
+    try {
+      const requestUrl = new URL(req.url, `http://${req.headers.host || "localhost"}`);
+
+      if (req.method === "GET" && requestUrl.pathname === "/health") {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: true, service: "telegram-bot", webhook: true }));
+        return;
+      }
+
+      if (req.method !== "POST" || requestUrl.pathname !== FINCLAW_WEBHOOK_PATH) {
+        res.writeHead(404, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: false, error: "Not found" }));
+        return;
+      }
+
+      if (FINCLAW_WEBHOOK_TOKEN) {
+        const authHeader = String(req.headers["x-finclaw-token"] || req.headers["authorization"] || "");
+        const bearerToken = authHeader.toLowerCase().startsWith("bearer ") ? authHeader.slice(7).trim() : authHeader.trim();
+        if (bearerToken !== FINCLAW_WEBHOOK_TOKEN) {
+          res.writeHead(401, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ ok: false, error: "Unauthorized" }));
+          return;
+        }
+      }
+
+      const rawBody = await readRequestBody(req);
+      let body = null;
+      if (rawBody) {
+        try {
+          body = JSON.parse(rawBody);
+        } catch {
+          body = rawBody;
+        }
+      }
+
+      const rawText = normalizeWebhookBody(body);
+      if (!rawText) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: false, error: "Missing FINCLAW_EVENT payload" }));
+        return;
+      }
+
+      const senderName = body?.senderName || body?.submittedBy || "finance_guardian_bot_bot";
+      const senderId = body?.senderId || body?.submittedById || null;
+      const chatId = body?.chatId || body?.groupId || null;
+
+      console.log("=================================");
+      console.log("FINCLAW WEBHOOK RECEIVED");
+      console.log(`Path: ${requestUrl.pathname}`);
+      console.log(`Sender: ${senderName}`);
+      console.log(`Chat: ${chatId || "n/a"}`);
+      console.log("=================================");
+
+      const result = await handleFinClawEvent(rawText, { senderName, senderId, chatId, source: "webhook" });
+      const statusCode = result?.ok ? 200 : 400;
+
+      res.writeHead(statusCode, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(result));
+    } catch (error) {
+      console.error("FINCLAW WEBHOOK ERROR:", error && error.stack ? error.stack : error);
+      try {
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: false, error: error.message || String(error) }));
+      } catch {
+        // Ignore secondary response errors.
+      }
+    }
+  });
+
+  finClawWebhookServer.listen(FINCLAW_WEBHOOK_PORT, () => {
+    console.log(`🌐 FINCLAW webhook listening on port ${FINCLAW_WEBHOOK_PORT}`);
+    console.log(`🔗 POST FINCLAW events to http://localhost:${FINCLAW_WEBHOOK_PORT}${FINCLAW_WEBHOOK_PATH}`);
+  });
+
+  return finClawWebhookServer;
+}
+
+async function handleFinClawEvent(rawText, context = {}) {
+  try {
+    const prefix = "FINCLAW_EVENT:";
+    const payloadText = String(rawText || "").slice(prefix.length).trim();
+
+    if (!payloadText) {
+      throw new Error("Missing event payload");
+    }
+
+    const event = JSON.parse(payloadText);
+    const transaction = event?.transaction;
+
+    if (!event?.eventType) {
+      throw new Error("Missing eventType");
+    }
+    if (!transaction || typeof transaction !== "object") {
+      throw new Error("Missing transaction object");
+    }
+
+    // Debug raw transaction to help diagnose serialization issues
+    console.log("RAW FINCLAW TRANSACTION:");
+    console.log(JSON.stringify(transaction, null, 2));
+
+    // Robust amount normalization: accept numbers or numeric strings
+    const parsedAmount = Number(transaction.amount);
+    if (!Number.isFinite(parsedAmount)) {
+      throw new Error("Missing or invalid transaction.amount");
+    }
+    // Preserve sign convention: negative = expense, positive = income
+    transaction.amount = parsedAmount;
+
+    if (!transaction.merchant || String(transaction.merchant).trim().length === 0) {
+      throw new Error("Missing transaction.merchant");
+    }
+
+    const normalizedEvent = normalizeFinClawTransaction(event);
+    const normalizedTransaction = normalizedEvent.transaction;
+
+    console.log("====================");
+    console.log("FINCLAW EVENT DETECTED");
+    console.log(`Merchant: ${normalizedTransaction.merchant}`);
+    console.log(`Amount: ${normalizedTransaction.amount}`);
+    console.log(`Category: ${normalizedTransaction.categoryHint || "N/A"}`);
+    console.log(`Risk: ${normalizedTransaction.riskLevel || "N/A"}`);
+    console.log(`Date: ${normalizedTransaction.date || "N/A"}`);
+    console.log("Normalizing transaction...");
+    console.log("NORMALIZED AMOUNT:");
+    console.log(transaction.amount);
+    console.log("Normalized transaction:");
+    console.log(JSON.stringify(normalizedTransaction, null, 2));
+
+    const isDuplicate = isLikelyDuplicateFinClawTransaction(normalizedTransaction);
+    console.log(`Duplicate detection result: ${isDuplicate}`);
+
+    if (isDuplicate) {
+      console.log("Duplicate FinClaw event detected; skipping Actual Budget insertion.");
+      console.log("====================");
+      return { ok: true, duplicate: true, event: normalizedEvent };
+    }
+
+    console.log("Routing to Actual Budget...");
+    console.log("CALLING ADD TRANSACTION");
+    // Include sender context in notes so downstream systems (finance guardian) can attribute submissions
+    const senderNote = context && (context.senderName || context.senderId)
+      ? `${context.senderName || 'unknown'}${context.senderId ? ` (${context.senderId})` : ''}${context.chatId ? ` [chat:${context.chatId}]` : ''}`
+      : null;
+
+    // Add a machine-parsable prefix so downstream systems (finance guardian)
+    // can reliably detect that this transaction was ingested by FinClaw.
+    const structuredMeta = {
+      submittedBy: context?.senderName || null,
+      submittedById: context?.senderId || null,
+      chatId: context?.chatId || null,
+      source: normalizedEvent.source || null,
+      timestamp: normalizedEvent.timestamp || null,
+      amount: normalizedTransaction.amount || null,
+    };
+
+    // Wrap the structured JSON in explicit delimiters on its own line so
+    // downstream consumers can extract it with a simple regex, e.g.
+    // /<<FINCLAW_SUBMITTED>>(.*?)<<FINCLAW_SUBMITTED_END>>/s
+    const finclawPrefix = `<<FINCLAW_SUBMITTED>>${JSON.stringify(structuredMeta)}<<FINCLAW_SUBMITTED_END>>`;
+
+    const ingestionNotes = [
+      finclawPrefix,
+      buildFinClawIngestionNotes(normalizedTransaction, normalizedEvent),
+      senderNote,
+    ].filter(Boolean).join('\n');
+
+    console.log(JSON.stringify({
+      amount: normalizedTransaction.amount,
+      payee: normalizedTransaction.payee,
+      date: normalizedTransaction.date,
+      account: "Karthik Maiya",
+      category: normalizedTransaction.categoryHint || undefined,
+      notes: ingestionNotes,
+    }, null, 2));
+
+    const { addTransaction } = require(path.join(__dirname, "integrations", "add-transaction.js"));
+    const result = await addTransaction({
+      amount: normalizedTransaction.amount,
+      payee: normalizedTransaction.payee,
+      notes: ingestionNotes,
+      date: normalizedTransaction.date,
+      account: FINCLAW_ACTUAL_ACCOUNT_NAME,
+      accountId: FINCLAW_ACTUAL_ACCOUNT_ID,
+      category: normalizedTransaction.categoryHint || undefined,
+    });
+
+    console.log("Transaction inserted successfully.");
+    console.log(`Transaction ID: ${result.id || "n/a"}`);
+    console.log(`Account: ${result.account || FINCLAW_ACTUAL_ACCOUNT_NAME}`);
+    console.log(`Account ID: ${result.accountId || FINCLAW_ACTUAL_ACCOUNT_ID}`);
+    console.log("====================");
+
+    return { ok: true, inserted: true, event: normalizedEvent, result };
+  } catch (error) {
+    console.error("=================================");
+    console.error("FINCLAW INGESTION ERROR");
+    console.error(error);
+    if (error && error.stack) console.error(error.stack);
+    console.error("=================================");
+    return { ok: false, error: error.message || String(error) };
+  }
+}
+
 async function getOcrWorker() {
   if (!ocrWorkerPromise) {
     ocrWorkerPromise = (async () => {
@@ -659,19 +1009,117 @@ I'll scan and log them automatically!`,
  * Handle Telegram webhook/polling
  */
 async function handleUpdate(update) {
-  const message = update.message;
+  console.log("HANDLE UPDATE FUNCTION TRIGGERED");
+  console.log("RAW UPDATE:");
+  console.log(JSON.stringify(update, null, 2));
+
+  const updateType = update.message
+    ? "message"
+    : update.channel_post
+    ? "channel_post"
+    : update.edited_message
+    ? "edited_message"
+    : update.edited_channel_post
+    ? "edited_channel_post"
+    : "unknown";
+
+  const message =
+    update.message ||
+    update.channel_post ||
+    update.edited_message ||
+    update.edited_channel_post;
   if (!message) return;
 
-  const userId = message.from.id;
-  const chatId = message.chat.id;
-  const text = message.text;
-  const hasImage = Boolean(message.photo?.length) || /^image\//i.test(message.document?.mime_type || "");
-
-  console.log(
-    `[${new Date().toISOString()}] ${message.from.first_name}: ${text}`
-  );
-
   try {
+    // Phase 3A/3B debug visibility check: log raw incoming message as early as possible.
+    console.log(`UPDATE TYPE: ${updateType}`);
+    console.log("MESSAGE RECEIVED:");
+    console.log(message);
+    console.log("FROM BOT:");
+    console.log(message.from?.is_bot);
+    console.log("SENDER CHAT:");
+    console.log(message.sender_chat || null);
+
+    const userId = message.from?.id;
+    const chatId = message.chat?.id;
+    const messageText = extractTelegramMessageText(message);
+    const text = String(messageText || "")
+      .replace(/\uFEFF/g, "")
+      .replace(/[\u200B-\u200D\u2060]/g, "")
+      .trim();
+    let normalizedText = text.trimStart();
+
+    // If the message contains a .json document (guardian may send the FINCLAW_EVENT as a file),
+    // download and read it so we can parse the payload.
+    if ((!normalizedText || !/FINCLAW_EVENT:/i.test(normalizedText)) && message.document) {
+      const docName = String(message.document.file_name || "").toLowerCase();
+      const mime = String(message.document.mime_type || "").toLowerCase();
+      if (docName.endsWith('.json') || mime.includes('json') || mime === 'text/plain') {
+        try {
+          console.log('Detected document attachment; attempting to download and read JSON payload...');
+          const tempPath = await downloadTelegramFile(message.document.file_id, path.extname(message.document.file_name) || '.json');
+          try {
+            const fileContent = fs.readFileSync(tempPath, 'utf8');
+            const fileText = String(fileContent || '').trim();
+            if (fileText) {
+              // If the file contains a FINCLAW_EVENT wrapper or raw event JSON, prefer it.
+              if (/FINCLAW_EVENT:/i.test(fileText)) {
+                normalizedText = fileText;
+              } else {
+                // If the document is raw JSON for the event, wrap it so handler can parse.
+                normalizedText = `FINCLAW_EVENT:${fileText}`;
+              }
+              console.log('Loaded FINCLAW payload from document.');
+            }
+          } finally {
+            try { fs.unlinkSync(tempPath); } catch (e) {}
+          }
+        } catch (err) {
+          console.error('Failed to download/read attached JSON document:', err.message || err);
+        }
+      }
+    }
+    const hasImage = Boolean(
+      (Array.isArray(message.photo) && message.photo.length > 0) ||
+        (message.document && /^image\//i.test(message.document.mime_type || ""))
+    );
+
+    console.log("=================================");
+    console.log("MESSAGE TEXT RECEIVED:");
+    console.log(normalizedText);
+    console.log("=================================");
+
+    const finClawMatch =
+      normalizedText.startsWith("FINCLAW_EVENT:") ||
+      normalizedText.includes("FINCLAW_EVENT:");
+
+    console.log("FINCLAW MATCH RESULT:");
+    console.log(finClawMatch);
+    console.log("FINCLAW BRANCH DECISION:");
+    console.log(finClawMatch ? "MATCHED FINCLAW_EVENT" : "IGNORED NON-FINCLAW MESSAGE");
+
+    if (finClawMatch) {
+      console.log("=================================");
+      console.log("CALLING FINCLAW HANDLER");
+      console.log("=================================");
+
+      try {
+        const senderName = message.from?.username || message.from?.first_name || message.sender_chat?.title || 'unknown';
+        const senderId = message.from?.id || message.sender_chat?.id || null;
+        await handleFinClawEvent(normalizedText, { senderName, senderId, chatId });
+      } catch (error) {
+        console.error("FINCLAW HANDLER FAILED:");
+        console.error(error);
+      }
+
+      return;
+    }
+
+    if (chatId == null) {
+      console.warn("Skipping update with no chat id:", updateType);
+      return;
+    }
+
     if (hasImage) {
       const parsed = await processReceiptImage(message);
       if (!parsed) {
@@ -707,7 +1155,7 @@ async function handleUpdate(update) {
 
     const command = parseCommand(text);
     console.log(`[DEBUG] Parsed command:`, JSON.stringify(command));
-    
+
     const result = await executeAction(command, userId);
     console.log(`[DEBUG] Action result:`, JSON.stringify(result));
 
@@ -754,6 +1202,7 @@ async function startPolling() {
   while (true) {
     try {
       pollAttempts += 1;
+      console.log(`[Poll #${pollAttempts}] Waiting for Telegram updates...`);
       const response = await axios.post(
         `${TELEGRAM_API}/getUpdates`,
         { offset, timeout: 30 },
@@ -763,12 +1212,27 @@ async function startPolling() {
       const updates = response.data.result;
       if (updates && updates.length > 0) {
         console.log(`[Poll #${pollAttempts}] Received ${updates.length} update(s)`);
+
         for (const update of updates) {
-          await handleUpdate(update);
+          console.log("ENTERED FOR LOOP");
+
+          // Advance offset BEFORE processing
           offset = update.update_id + 1;
+
+          try {
+            console.log("=================================");
+            console.log("PROCESSING UPDATE ID:");
+            console.log(update.update_id);
+            console.log("=================================");
+
+            await handleUpdate(update);
+          } catch (err) {
+            console.error("UPDATE PROCESSING FAILED:");
+            console.error(err);
+          }
         }
-      } else if (pollAttempts % 10 === 0) {
-        console.log(`[Poll #${pollAttempts}] Still listening (no new messages)...`);
+      } else {
+        console.log(`[Poll #${pollAttempts}] No new messages.`);
       }
     } catch (error) {
       const statusCode = error.response?.status;
@@ -814,6 +1278,7 @@ async function startPolling() {
 }
 
 // Start the bot
+startFinClawWebhookServer();
 startPolling().catch((error) => {
   console.error("Fatal error:", error);
   process.exit(1);

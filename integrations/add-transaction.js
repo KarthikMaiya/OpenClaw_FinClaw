@@ -268,7 +268,7 @@ async function resolveCategoryId(categoryName) {
   return newCategoryId;
 }
 
-async function addTransaction({ amount, payee, notes, date, account = 'Karthik Maiya', category: categoryName }) {
+async function addTransaction({ amount, payee, notes, date, account = 'Karthik Maiya', accountId, category: categoryName }) {
   const runtimeConfig = validateRequiredConfig({ requireActual: true, requireBudgetId: true });
   const actualConfig = getActualBudgetConfig();
   if (runtimeConfig.configDebug) {
@@ -276,6 +276,16 @@ async function addTransaction({ amount, payee, notes, date, account = 'Karthik M
   }
   const dataDir = 'C:\\tmp\\actual-data';
   fs.mkdirSync(dataDir, { recursive: true });
+
+  console.log('CALLING ADD TRANSACTION');
+  console.log(JSON.stringify({
+    amount,
+    payee,
+    date,
+    account,
+    accountId: accountId || null,
+    category: categoryName || null,
+  }, null, 2));
 
   if (!apiReady) {
     if (!apiInitPromise) {
@@ -295,11 +305,15 @@ async function addTransaction({ amount, payee, notes, date, account = 'Karthik M
   const inferredCategoryName = categoryName || await inferCategoryName({ payee, notes, amount: parseFloat(amount) });
   const categoryId = await resolveCategoryId(inferredCategoryName);
 
-  const accountId = ACCOUNTS[account] || ACCOUNTS['Karthik Maiya'];
+  const resolvedAccountId = accountId || ACCOUNTS[account] || ACCOUNTS['Karthik Maiya'];
+  if (!resolvedAccountId) {
+    throw new Error(`Unknown account: ${account}`);
+  }
+  console.log(`Resolved Actual account ID: ${resolvedAccountId}`);
   const amountCents = Math.round(parseFloat(amount) * 100);
   const txDate = date || new Date().toISOString().split('T')[0];
 
-  const ids = await api.addTransactions(accountId, [{
+  const ids = await api.addTransactions(resolvedAccountId, [{
     date: txDate,
     amount: amountCents,
     payee_name: payee || '',
@@ -315,10 +329,20 @@ async function addTransaction({ amount, payee, notes, date, account = 'Karthik M
     console.warn('⚠️ Sync warning (transaction still saved):', syncError.message || syncError);
   }
 
+  console.log('Actual Budget insertion complete');
+  console.log(JSON.stringify({
+    insertedId: ids[0],
+    accountId: resolvedAccountId,
+    amount: amountCents / 100,
+    payee,
+    date: txDate,
+    category: inferredCategoryName,
+  }, null, 2));
+
   if (SHOULD_SHUTDOWN) {
     await api.shutdown();
   }
-  return { ok: true, id: ids[0], account, amount: amountCents / 100, payee, date: txDate, notes, category: inferredCategoryName };
+  return { ok: true, id: ids[0], account, accountId: resolvedAccountId, amount: amountCents / 100, payee, date: txDate, notes, category: inferredCategoryName };
 }
 
 // CLI mode
