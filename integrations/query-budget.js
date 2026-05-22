@@ -37,6 +37,85 @@ let apiInitPromise = null;
 let apiReady = false;
 let lastInitAttempt = 0;
 let initFailureCount = 0;
+let resolvedBudgetCache = null;
+
+const ACTUAL_INIT_TIMEOUT_MS = Number(process.env.ACTUAL_INIT_TIMEOUT_MS || 20000);
+const ACTUAL_INIT_MAX_RETRIES = Number(process.env.ACTUAL_INIT_MAX_RETRIES || 3);
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function withTimeout(promise, timeoutMs, label) {
+  let timeoutId;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise((_, reject) => {
+        timeoutId = setTimeout(() => {
+          reject(new Error(`${label} timed out after ${timeoutMs}ms`));
+        }, timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
+  }
+}
+
+function isRetryableActualConnectionError(error) {
+  const message = String(error?.message || error || '').toLowerCase();
+  return (
+    message.includes('network-failure') ||
+    message.includes('network failure') ||
+    message.includes('timeout') ||
+    message.includes('fetch failed') ||
+    message.includes('econnrefused') ||
+    message.includes('socket hang up') ||
+    message.includes('temporarily unavailable')
+  );
+}
+
+async function resetActualConnection() {
+  try {
+    await api.shutdown();
+  } catch {
+    // Ignore shutdown errors while recovering the connection.
+  } finally {
+    apiReady = false;
+  }
+}
+
+function buildActualServerCandidates(serverUrl) {
+  const base = String(serverUrl || '').trim();
+  if (!base) {
+    return [];
+  }
+
+  const candidates = new Set([base]);
+
+  try {
+    const parsed = new URL(base);
+    if (parsed.hostname === 'localhost') {
+      const ipv4 = new URL(base);
+      ipv4.hostname = '127.0.0.1';
+      candidates.add(ipv4.toString());
+    } else if (parsed.hostname === '127.0.0.1') {
+      const localhost = new URL(base);
+      localhost.hostname = 'localhost';
+      candidates.add(localhost.toString());
+    }
+  } catch {
+    if (/localhost/i.test(base)) {
+      candidates.add(base.replace(/localhost/ig, '127.0.0.1'));
+    } else if (/127\.0\.0\.1/.test(base)) {
+      candidates.add(base.replace(/127\.0\.0\.1/g, 'localhost'));
+    }
+  }
+
+  return [...candidates];
+}
 
 function formatMoney(amount) {
   return `₹${amount.toFixed(2)}`;
@@ -627,6 +706,7 @@ async function initBudget() {
     printDebugSummary('query-budget');
   }
   const dataDir = 'C:\\tmp\\actual-data';
+  const serverCandidates = buildActualServerCandidates(actualConfig.serverUrl);
   fs.mkdirSync(dataDir, { recursive: true });
   if (apiReady) {
     return;
@@ -643,18 +723,73 @@ async function initBudget() {
 
   if (!apiInitPromise) {
     apiInitPromise = (async () => {
-      try {
-        lastInitAttempt = Date.now();
-        await api.init({ serverURL: actualConfig.serverUrl, password: actualConfig.password, dataDir });
-        const resolvedBudget = await resolveActualBudget(api, { dataDir });
-        await api.loadBudget(resolvedBudget.localBudgetId);
-        apiReady = true;
-        initFailureCount = 0; // Reset backoff on success
-        console.log(`[query-budget] Budget API initialized successfully (${resolvedBudget.budgetName})`);
-      } catch (error) {
-        initFailureCount += 1;
-        console.error(`[query-budget] Init failed (attempt ${initFailureCount}):`, error.message);
-        throw error;
+      const maxRetries = Math.max(1, ACTUAL_INIT_MAX_RETRIES);
+
+      for (let attempt = 1; attempt <= maxRetries; attempt += 1) {
+        let lastAttemptError;
+        try {
+          lastInitAttempt = Date.now();
+          console.log('INITIALIZING ACTUAL BUDGET');
+
+          for (const serverURL of serverCandidates) {
+            try {
+              console.log(`[query-budget] Trying Actual server: ${serverURL}`);
+              await withTimeout(
+                api.init({ serverURL, password: actualConfig.password, dataDir }),
+                ACTUAL_INIT_TIMEOUT_MS,
+                'Actual API init'
+              );
+              lastAttemptError = null;
+              break;
+            } catch (hostError) {
+              lastAttemptError = hostError;
+              await resetActualConnection();
+              if (!isRetryableActualConnectionError(hostError)) {
+                throw hostError;
+              }
+              console.warn(`[query-budget] Failed to connect using ${serverURL}: ${hostError.message}`);
+            }
+          }
+
+          if (lastAttemptError) {
+            throw lastAttemptError;
+          }
+
+          if (!resolvedBudgetCache) {
+            resolvedBudgetCache = await withTimeout(
+              resolveActualBudget(api, { dataDir }),
+              ACTUAL_INIT_TIMEOUT_MS,
+              'Actual budget resolve'
+            );
+          }
+
+          await withTimeout(
+            api.loadBudget(resolvedBudgetCache.localBudgetId),
+            ACTUAL_INIT_TIMEOUT_MS,
+            'Actual budget load'
+          );
+
+          apiReady = true;
+          initFailureCount = 0;
+          console.log('ACTUAL CONNECTION SUCCESS');
+          console.log(`[query-budget] Budget API initialized successfully (${resolvedBudgetCache.budgetName})`);
+          return;
+        } catch (error) {
+          apiReady = false;
+          initFailureCount += 1;
+          console.log('ACTUAL CONNECTION FAILED');
+          console.error(`[query-budget] Init failed (attempt ${attempt}/${maxRetries}):`, error.message);
+
+          const canRetry = attempt < maxRetries && isRetryableActualConnectionError(error);
+          if (!canRetry) {
+            throw error;
+          }
+
+          await resetActualConnection();
+          const retryDelayMs = Math.min(1000 * attempt, 5000);
+          console.warn(`[query-budget] Retrying init in ${retryDelayMs}ms...`);
+          await sleep(retryDelayMs);
+        }
       }
     })().finally(() => {
       apiInitPromise = null;

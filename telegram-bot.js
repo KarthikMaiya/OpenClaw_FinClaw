@@ -168,6 +168,16 @@ function getActualErrorResponse(error, fallbackMessage) {
     return "⏱️ Actual Budget is rate-limiting requests. Wait a few seconds and try again.";
   }
 
+  if (
+    message.includes("network-failure") ||
+    message.includes("network failure") ||
+    message.includes("timeout") ||
+    message.includes("econnrefused") ||
+    message.includes("fetch failed")
+  ) {
+    return "❌ Could not connect to Actual Budget. Ensure your Actual server is running and `ACTUAL_SERVER_URL` is reachable (for local setup, try http://127.0.0.1:5006), then retry.";
+  }
+
   if (message.includes("could not find actual budget named") || message.includes("missing budget selection")) {
     return "❌ Budget not found. Check `ACTUAL_BUDGET_NAME` or `ACTUAL_BUDGET_ID` in `.env` and restart the bot.";
   }
@@ -202,36 +212,58 @@ async function sendTelegramMessage(chatId, text, options = {}) {
  */
 function parseCommand(text) {
   if (!text) return null;
-  const trimmed = text.trim().toLowerCase();
+  const normalizedInput = text
+    .trim()
+    .replace(/^\/(\w+)@[A-Za-z0-9_]+(?=\s|$)/, (_, command) => `/${command}`)
+    .toLowerCase();
+  const conversationalText = normalizedInput.replace(/[?.!]+$/, "").trim();
 
-  if (trimmed === "/start" || trimmed === "/help") {
+  const extractRecentLimit = (value) => {
+    const match = String(value || "").match(/\blast\s+(\d+)\s+transactions?\b/i);
+    const parsed = Number(match?.[1]);
+    if (!Number.isInteger(parsed) || parsed <= 0) {
+      return 5;
+    }
+    return Math.min(parsed, 20);
+  };
+
+  const isRecentTransactionQuery =
+    /^(?:show\s+)?(?:my\s+)?last(?:\s+\d+)?\s+transactions?$/i.test(conversationalText) ||
+    /^(?:show\s+)?recent\s+transactions?$/i.test(conversationalText);
+
+  if (normalizedInput === "/start" || normalizedInput === "/help") {
     return { type: "help" };
-  } else if (trimmed === "/balance") {
+  } else if (normalizedInput === "/balance") {
     return { type: "balance" };
-  } else if (trimmed === "/recent") {
-    return { type: "recent" };
+  } else if (normalizedInput === "/recent") {
+    return { type: "SHOW_RECENT_TRANSACTIONS", limit: 5 };
+  } else if (isRecentTransactionQuery) {
+    return {
+      type: "SHOW_RECENT_TRANSACTIONS",
+      limit: extractRecentLimit(conversationalText),
+    };
   } else if (
-    trimmed === "/insights" ||
-    trimmed === "/analyze" ||
-    trimmed === "/spending" ||
-    /(?:analy[sz]e|insights?|spending behavior|spending analysis|expense analysis|how did i spend)/i.test(trimmed)
+    normalizedInput === "/insights" ||
+    normalizedInput === "/analyze" ||
+    normalizedInput === "/spending" ||
+    /(?:analy[sz]e|insights?|spending behavior|spending analysis|expense analysis|how did i spend)/i.test(normalizedInput)
   ) {
     return { type: "insights" };
   } else if (
-    trimmed === "/query" ||
-    trimmed === "/ask" ||
-    /(?:how much|show my highest expenses|compare|did i overspend|what did i spend|highest expenses|spend on)/i.test(trimmed)
+    normalizedInput === "/query" ||
+    normalizedInput === "/ask" ||
+    /(?:how much|show my highest expenses|compare|did i overspend|what did i spend|highest expenses|spend on)/i.test(normalizedInput)
   ) {
-    return { type: "nlq", text: trimmed };
-  } else if (trimmed === "/pair") {
+    return { type: "nlq", text: normalizedInput };
+  } else if (normalizedInput === "/pair") {
     return { type: "pair" };
   } else if (
-    trimmed.match(/^\d+\s+.+$/) ||
-    trimmed.match(/^send\s+\d+\s+.+$/i)
+    normalizedInput.match(/^\d+\s+.+$/) ||
+    normalizedInput.match(/^send\s+\d+\s+.+$/i)
   ) {
-    return { type: "add_transaction", text: trimmed };
+    return { type: "add_transaction", text: normalizedInput };
   }
-  return { type: "message", text: trimmed };
+  return { type: "message", text: normalizedInput };
 }
 
 /**
@@ -817,6 +849,27 @@ async function processReceiptImage(message) {
   }
 }
 
+async function getRecentTransactions(limit = 5) {
+  const integrationDir = path.join(__dirname, "integrations");
+  const { getRecentTransactions: queryRecentTransactions } = require(path.join(
+    integrationDir,
+    "query-budget.js"
+  ));
+
+  const parsedLimit = Number(limit);
+  const safeLimit = Number.isInteger(parsedLimit) && parsedLimit > 0
+    ? Math.min(parsedLimit, 20)
+    : 5;
+
+  const result = await queryRecentTransactions({ limit: safeLimit });
+  const transactions = Array.isArray(result?.transactions)
+    ? [...result.transactions]
+    : [];
+
+  transactions.sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")));
+  return transactions.slice(0, safeLimit);
+}
+
 /**
  * Execute agent action
  */
@@ -878,12 +931,7 @@ I'll scan and log them automatically!`,
 
     case "recent":
       try {
-        const { getRecentTransactions } = require(path.join(
-          integrationDir,
-          "query-budget.js"
-        ));
-        const result = await getRecentTransactions({ limit: 5 });
-        const transactions = result.transactions || [];
+        const transactions = await getRecentTransactions(5);
         if (transactions.length === 0) {
           return { response: "📊 **No recent transactions**" };
         }
@@ -897,6 +945,40 @@ I'll scan and log them automatically!`,
         console.error("Recent transactions error:", error);
         return {
           response: getActualErrorResponse(error, "❌ Error fetching transactions."),
+        };
+      }
+
+    case "SHOW_RECENT_TRANSACTIONS":
+      try {
+        console.log("RECENT TRANSACTION QUERY DETECTED");
+        console.log("FETCHING LAST TRANSACTIONS");
+
+        const limit = Number.isInteger(action?.limit) && action.limit > 0
+          ? Math.min(action.limit, 20)
+          : 5;
+        const transactions = await getRecentTransactions(limit);
+
+        if (transactions.length === 0) {
+          return { response: "❌ No recent transactions found." };
+        }
+
+        const indexLabels = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"];
+        const lines = transactions.map((transaction, index) => {
+          const indexLabel = indexLabels[index] || `${index + 1}.`;
+          const amount = Math.abs(Number(transaction.amount || 0));
+          const amountText = Number.isInteger(amount) ? amount.toFixed(0) : amount.toFixed(2);
+          const payee = transaction.payee || "Unknown";
+          const category = transaction.category || "Uncategorized";
+          return `${indexLabel} ${payee} — ₹${amountText} — ${category}`;
+        });
+
+        return {
+          response: `📊 Last ${limit} Transactions\n\n${lines.join("\n")}`,
+        };
+      } catch (error) {
+        console.error("Recent transaction conversational query error:", error);
+        return {
+          response: getActualErrorResponse(error, "❌ Error fetching recent transactions."),
         };
       }
 
